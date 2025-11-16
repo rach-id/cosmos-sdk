@@ -4,6 +4,7 @@ package server
 import (
 	"cosmossdk.io/log"
 	cmtlog "github.com/cometbft/cometbft/libs/log"
+	"strings"
 )
 
 var _ cmtlog.Logger = (*CometLoggerWrapper)(nil)
@@ -17,6 +18,14 @@ type CometLoggerWrapper struct {
 // Trace implements the CometBFT Logger trace-level method.
 func (cmt CometLoggerWrapper) Trace(msg string, keyVals ...interface{}) {
 	cmt.Logger.Trace(msg, keyVals...)
+}
+
+func (cmt CometLoggerWrapper) Debug(msg string, keyVals ...interface{}) {
+	if strings.Contains(msg, "recursiveRemove") || strings.Contains(msg, "SAVE TREE") || strings.Contains(msg, "BATCH SAVE") {
+		cmt.Trace(msg, keyVals...)
+		return
+	}
+	cmt.Logger.Debug(msg, keyVals...)
 }
 
 // With returns a new wrapped logger with additional context provided by a set
