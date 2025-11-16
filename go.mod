@@ -206,9 +206,11 @@ require (
 replace (
 	cosmossdk.io/api => ./api
 	cosmossdk.io/log => ./log
-	// use cosmos fork of keyring
+
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	github.com/cometbft/cometbft => github.com/celestiaorg/celestia-core v0.39.11
+	// use cosmos fork of keyring
+	github.com/cosmos/iavl => github.com/rach-id/iavl v0.0.0-20251116101247-0ef2da8d8b69
 	// dgrijalva/jwt-go is deprecated and doesn't receive security updates.
 	// TODO: remove it: https://github.com/cosmos/cosmos-sdk/issues/13134
 	github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt/v4 v4.4.2
