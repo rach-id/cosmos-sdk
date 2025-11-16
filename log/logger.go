@@ -110,7 +110,7 @@ func (l zeroLogWrapper) Error(msg string, keyVals ...interface{}) {
 // The key of the tuple must be a string.
 func (l zeroLogWrapper) Debug(msg string, keyVals ...interface{}) {
 	if strings.Contains(msg, "recursiveRemove") || strings.Contains(msg, "SAVE TREE") || strings.Contains(msg, "BATCH SAVE") {
-		l.Trace(msg, keyVals...)
+		// Suppress these logs completely
 		return
 	}
 	l.Logger.Debug().Fields(keyVals).Msg(msg)

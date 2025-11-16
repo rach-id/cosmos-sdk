@@ -22,7 +22,7 @@ func (cmt CometLoggerWrapper) Trace(msg string, keyVals ...interface{}) {
 
 func (cmt CometLoggerWrapper) Debug(msg string, keyVals ...interface{}) {
 	if strings.Contains(msg, "recursiveRemove") || strings.Contains(msg, "SAVE TREE") || strings.Contains(msg, "BATCH SAVE") {
-		cmt.Trace(msg, keyVals...)
+		// Suppress these logs completely
 		return
 	}
 	cmt.Logger.Debug(msg, keyVals...)
