@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -754,7 +755,9 @@ func (m *Manager) PreBlock(ctx sdk.Context) (*sdk.ResponsePreBlock, error) {
 	paramsChanged := false
 	for _, moduleName := range m.OrderPreBlockers {
 		if module, ok := m.Modules[moduleName].(appmodule.HasPreBlocker); ok {
+			start := time.Now()
 			rsp, err := module.PreBlock(ctx)
+			fmt.Printf("[FinalizeBlock] %s.PreBlock took: %s\n", moduleName, time.Since(start))
 			if err != nil {
 				return nil, err
 			}
@@ -775,9 +778,11 @@ func (m *Manager) BeginBlock(ctx sdk.Context) (sdk.BeginBlock, error) {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	for _, moduleName := range m.OrderBeginBlockers {
 		if module, ok := m.Modules[moduleName].(appmodule.HasBeginBlocker); ok {
+			start := time.Now()
 			if err := module.BeginBlock(ctx); err != nil {
 				return sdk.BeginBlock{}, err
 			}
+			fmt.Printf("[FinalizeBlock] %s.BeginBlock took: %s\n", moduleName, time.Since(start))
 		}
 	}
 
@@ -794,16 +799,19 @@ func (m *Manager) EndBlock(ctx sdk.Context) (sdk.EndBlock, error) {
 	validatorUpdates := []abci.ValidatorUpdate{}
 
 	for _, moduleName := range m.OrderEndBlockers {
+		start := time.Now()
 		if module, ok := m.Modules[moduleName].(appmodule.HasEndBlocker); ok {
 			err := module.EndBlock(ctx)
 			if err != nil {
 				return sdk.EndBlock{}, err
 			}
+			fmt.Printf("[FinalizeBlock] %s.EndBlock took: %s\n", moduleName, time.Since(start))
 		} else if module, ok := m.Modules[moduleName].(HasABCIEndBlock); ok {
 			moduleValUpdates, err := module.EndBlock(ctx)
 			if err != nil {
 				return sdk.EndBlock{}, err
 			}
+			fmt.Printf("[FinalizeBlock] %s.EndBlock took: %s\n", moduleName, time.Since(start))
 			// use these validator updates if provided, the module manager assumes
 			// only one module will update the validator set
 			if len(moduleValUpdates) > 0 {
@@ -833,9 +841,11 @@ func (m *Manager) Precommit(ctx sdk.Context) error {
 		if !ok {
 			continue
 		}
+		start := time.Now()
 		if err := module.Precommit(ctx); err != nil {
 			return err
 		}
+		fmt.Printf("[Commit] %s.Precommit took: %s\n", moduleName, time.Since(start))
 	}
 	return nil
 }
@@ -847,9 +857,11 @@ func (m *Manager) PrepareCheckState(ctx sdk.Context) error {
 		if !ok {
 			continue
 		}
+		start := time.Now()
 		if err := module.PrepareCheckState(ctx); err != nil {
 			return err
 		}
+		fmt.Printf("[Commit] %s.PrepareCheckState took: %s\n", moduleName, time.Since(start))
 	}
 	return nil
 }

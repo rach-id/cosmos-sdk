@@ -710,6 +710,7 @@ func (app *BaseApp) VerifyVoteExtension(req *abci.RequestVerifyVoteExtension) (r
 // only used to handle early cancellation, for anything related to state app.finalizeBlockState.Context()
 // must be used.
 func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	finalizeBlockStart := time.Now()
 	var events []abci.Event
 
 	if err := app.checkHalt(req.Height, req.Time); err != nil {
@@ -773,17 +774,21 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 			WithHeaderHash(req.Hash))
 	}
 
+	preBlockStart := time.Now()
 	preblockEvents, err := app.preBlock(req)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[FinalizeBlock] preBlock took: %s\n", time.Since(preBlockStart))
 
 	events = append(events, preblockEvents...)
 
+	beginBlockStart := time.Now()
 	beginBlock, err := app.beginBlock(req)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[FinalizeBlock] beginBlock took: %s\n", time.Since(beginBlockStart))
 
 	// First check for an abort signal after beginBlock, as it's the first place
 	// we spend any significant amount of time.
@@ -805,10 +810,12 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 	//
 	// NOTE: Not all raw transactions may adhere to the sdk.Tx interface, e.g.
 	// vote extensions, so skip those.
+	txsStart := time.Now()
 	txResults := make([]*abci.ExecTxResult, 0, len(req.Txs))
-	for _, rawTx := range req.Txs {
+	for i, rawTx := range req.Txs {
 		var response *abci.ExecTxResult
 
+		txStart := time.Now()
 		if _, err := app.txDecoder(rawTx); err == nil {
 			response = app.deliverTx(rawTx)
 		} else {
@@ -823,6 +830,7 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 				false,
 			)
 		}
+		fmt.Printf("[FinalizeBlock] tx[%d] deliverTx took: %s\n", i, time.Since(txStart))
 
 		// check after every tx if we should abort
 		select {
@@ -834,15 +842,18 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 
 		txResults = append(txResults, response)
 	}
+	fmt.Printf("[FinalizeBlock] all %d txs took: %s\n", len(req.Txs), time.Since(txsStart))
 
 	if app.finalizeBlockState.ms.TracingEnabled() {
 		app.finalizeBlockState.ms = app.finalizeBlockState.ms.SetTracingContext(nil).(storetypes.CacheMultiStore)
 	}
 
+	endBlockStart := time.Now()
 	endBlock, err := app.endBlock(app.finalizeBlockState.Context())
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[FinalizeBlock] endBlock took: %s\n", time.Since(endBlockStart))
 
 	// check after endBlock if we should abort, to avoid propagating the result
 	select {
@@ -854,6 +865,8 @@ func (app *BaseApp) internalFinalizeBlock(ctx context.Context, req *abci.Request
 
 	events = append(events, endBlock.Events...)
 	cp := app.GetConsensusParams(app.finalizeBlockState.Context())
+
+	fmt.Printf("[FinalizeBlock] height=%d internalFinalizeBlock total took: %s\n", req.Height, time.Since(finalizeBlockStart))
 
 	return &abci.ResponseFinalizeBlock{
 		Events:                events,
@@ -910,7 +923,9 @@ func (app *BaseApp) FinalizeBlock(req *abci.RequestFinalizeBlock) (res *abci.Res
 	// if no OE is running, just run the block (this is either a block replay or a OE that got aborted)
 	res, err = app.internalFinalizeBlock(context.Background(), req)
 	if res != nil {
+		workingHashStart := time.Now()
 		res.AppHash = app.workingHash()
+		fmt.Printf("[FinalizeBlock] workingHash total took: %s\n", time.Since(workingHashStart))
 	}
 
 	return res, err
@@ -949,11 +964,14 @@ func (app *BaseApp) QuerySequence(_ context.Context, _ *abci.RequestQuerySequenc
 // against that height and gracefully halt if it matches the latest committed
 // height.
 func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
+	commitStart := time.Now()
 	header := app.finalizeBlockState.Context().BlockHeader()
 	retainHeight := app.GetBlockRetentionHeight(header.Height)
 
 	if app.precommiter != nil {
+		precommitStart := time.Now()
 		app.precommiter(app.finalizeBlockState.Context())
+		fmt.Printf("[Commit] precommiter took: %s\n", time.Since(precommitStart))
 	}
 
 	rms, ok := app.cms.(*rootmulti.Store)
@@ -969,7 +987,9 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 	// NOTE: This is safe because CometBFT holds a lock on the mempool for
 	// Commit. Use the header from this latest block.
 	app.checkStateMu.Lock()
+	storeCommitStart := time.Now()
 	app.cms.Commit()
+	fmt.Printf("[Commit] store.Commit took: %s\n", time.Since(storeCommitStart))
 	app.setState(execModeCheck, header)
 	app.checkStateMu.Unlock()
 
@@ -993,11 +1013,15 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 	app.finalizeBlockState = nil
 
 	if app.prepareCheckStater != nil {
+		prepareCheckStart := time.Now()
 		app.prepareCheckStater(app.checkState.Context())
+		fmt.Printf("[Commit] prepareCheckStater took: %s\n", time.Since(prepareCheckStart))
 	}
 
 	// The SnapshotIfApplicable method will create the snapshot by starting the goroutine
 	app.snapshotManager.SnapshotIfApplicable(header.Height)
+
+	fmt.Printf("[Commit] height=%d Commit total took: %s\n", header.Height, time.Since(commitStart))
 
 	return resp, nil
 }
@@ -1011,10 +1035,14 @@ func (app *BaseApp) workingHash() []byte {
 	// Write the FinalizeBlock state into branched storage and commit the MultiStore.
 	// The write to the FinalizeBlock state writes all state transitions to the root
 	// MultiStore (app.cms) so when Commit() is called it persists those values.
+	writeStart := time.Now()
 	app.finalizeBlockState.ms.Write()
+	fmt.Printf("[FinalizeBlock] workingHash: state Write() took: %s\n", time.Since(writeStart))
 
 	// Get the hash of all writes in order to return the apphash to the comet in finalizeBlock.
+	hashStart := time.Now()
 	commitHash := app.cms.WorkingHash()
+	fmt.Printf("[FinalizeBlock] workingHash: WorkingHash() took: %s\n", time.Since(hashStart))
 	app.logger.Debug("hash of all writes", "workingHash", fmt.Sprintf("%X", commitHash))
 
 	return commitHash
