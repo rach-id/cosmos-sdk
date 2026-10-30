@@ -32,8 +32,8 @@ func TestOptimisticExecution(t *testing.T) {
 	assert.Nil(t, resp)
 	assert.EqualError(t, err, "test error")
 
-	assert.False(t, oe.AbortIfNeeded([]byte("test"), nil))
-	assert.True(t, oe.AbortIfNeeded([]byte("wrong_hash"), nil))
+	assert.False(t, oe.AbortIfNeeded([]byte("test"), 0, nil))
+	assert.True(t, oe.AbortIfNeeded([]byte("wrong_hash"), 0, nil))
 
 	oe.Reset()
 }
@@ -48,8 +48,8 @@ func TestOptimisticExecutionTxsTransform(t *testing.T) {
 	}))
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("h"), Txs: [][]byte{[]byte("a")}})
 	_, _ = oe.WaitResult()
-	assert.False(t, oe.AbortIfNeeded([]byte("h"), [][]byte{[]byte("x")}))
-	assert.True(t, oe.AbortIfNeeded([]byte("h"), [][]byte{[]byte("a")}))
+	assert.False(t, oe.AbortIfNeeded([]byte("h"), 0, [][]byte{[]byte("x")}))
+	assert.True(t, oe.AbortIfNeeded([]byte("h"), 0, [][]byte{[]byte("a")}))
 
 	oe = NewOptimisticExecution(log.NewNopLogger(), ok, WithTxsTransform(func([][]byte) [][]byte { panic("boom") }))
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("h")})
@@ -67,16 +67,16 @@ func TestOptimisticExecutionPanic(t *testing.T) {
 	var logs bytes.Buffer
 	oe := NewOptimisticExecution(log.NewLogger(&logs), fn)
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("bad")})
-	assert.True(t, oe.AbortIfNeeded([]byte("other"), nil))
+	assert.True(t, oe.AbortIfNeeded([]byte("other"), 0, nil))
 	assert.NotPanics(t, oe.Abort)
 	assert.Contains(t, logs.String(), "boom") // the discarded panic is still logged
 
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("ok")})
-	assert.False(t, oe.AbortIfNeeded([]byte("ok"), nil))
+	assert.False(t, oe.AbortIfNeeded([]byte("ok"), 0, nil))
 	assert.NotPanics(t, func() { _, _ = oe.WaitResult() })
 
 	oe.Execute(&abci.RequestProcessProposal{Hash: []byte("bad")})
-	assert.False(t, oe.AbortIfNeeded([]byte("bad"), nil))
+	assert.False(t, oe.AbortIfNeeded([]byte("bad"), 0, nil))
 	assert.PanicsWithValue(t, "boom", func() { _, _ = oe.WaitResult() })
 }
 
